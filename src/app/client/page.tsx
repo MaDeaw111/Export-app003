@@ -29,16 +29,6 @@ import {
   Info
 } from "lucide-react";
 
-const PIPELINE_STAGES = [
-  { key: "pending_production", label: "Pending Production" },
-  { key: "pending_packaging", label: "Awaiting Packaging" },
-  { key: "awaiting_loading", label: "Awaiting Loading" },
-  { key: "loaded_into_container", label: "Loaded into Container" },
-  { key: "awaiting_bl_confirmation", label: "Awaiting B/L Confirmation" },
-  { key: "awaiting_all_docs", label: "Awaiting All Shipping Documents" },
-  { key: "etd", label: "ETD (Departure)" },
-  { key: "eta", label: "ETA (Destination)" },
-];
 
 export default function ClientPortal() {
   return (
@@ -142,10 +132,6 @@ function ClientPortalContent() {
   const activeDIs = shipments.filter(s => s.status !== "eta").length;
   const completedDIs = shipments.filter(s => s.status === "eta").length;
 
-  // Find index of current stage to calculate stepper percentage
-  const getStageIndex = (currentKey: string) => {
-    return PIPELINE_STAGES.findIndex(s => s.key === currentKey);
-  };
 
   return (
     <div className="min-h-screen pb-16">
@@ -302,7 +288,6 @@ function ClientPortalContent() {
                         </div>
                       ) : (
                         poShipments.map(ship => {
-                          const activeIndex = getStageIndex(ship.status);
                           
                           return (
                             <div 
@@ -333,83 +318,197 @@ function ClientPortalContent() {
                                 </div>
                               </div>
 
-                              {/* PIPELINE PROGRESS STEPPER */}
-                              <div className="py-2">
-                                {/* Desktop Horizontal Timeline */}
-                                <div className="hidden md:grid grid-cols-8 gap-1 relative z-10">
-                                  <div className="absolute top-[18px] left-[6.25%] right-[6.25%] h-0.5 bg-slate-800 -z-10">
-                                    <div 
-                                      className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 transition-all duration-550"
-                                      style={{ width: `${(activeIndex / 7) * 100}%` }}
-                                    ></div>
+                              {/* DUAL STEPPER SYSTEM */}
+                              <div className="py-6 border-y border-slate-900 bg-slate-950/20 px-6 rounded-2xl flex flex-col lg:flex-row justify-between gap-8 lg:gap-12 select-none">
+                                {/* Timeline 1: Vessel & Transit Tracking */}
+                                <div className="space-y-4 flex-1">
+                                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
+                                    Vessel & Transit Tracking
                                   </div>
-                                  
-                                  {PIPELINE_STAGES.map((stage, idx) => {
-                                    const isPassed = idx < activeIndex;
-                                    const isActive = idx === activeIndex;
-                                    const isFuture = idx > activeIndex;
+                                  {(() => {
+                                    const shipStatus = ship.status || (ship as any).shipment_status;
+                                    const getPhysicalActiveStage = (status: string) => {
+                                      if (status === "pending_production") return "Prod";
+                                      if (status === "pending_packaging") return "Pack";
+                                      if (status === "awaiting_loading" || status === "loaded_into_container" || status === "awaiting_bl_confirmation" || status === "awaiting_all_docs") return "Loaded";
+                                      if (status === "etd") return "ETD";
+                                      if (status === "eta") return "ETA";
+                                      return "Prod";
+                                    };
+                                    const activePhysStage = getPhysicalActiveStage(shipStatus || "");
+                                    const physStages = ["Prod", "Pack", "Loaded", "ETD", "ETA"];
+                                    const activePhysIndex = physStages.indexOf(activePhysStage);
+                                    const isPhysPulse = shipStatus !== "eta";
 
                                     return (
-                                      <div key={stage.key} className="flex flex-col items-center text-center px-1">
-                                        <div 
-                                          className={`w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all duration-300 ${
-                                            isActive 
-                                              ? "bg-blue-500 text-slate-950 border-blue-400 active-pulse" 
-                                              : isPassed 
-                                                ? "bg-slate-900 text-blue-400 border-blue-500/40" 
-                                                : "bg-slate-950 text-slate-600 border-slate-800"
-                                          }`}
-                                        >
-                                          {idx + 1}
+                                      <div className="relative w-full pt-2 pb-8 px-8">
+                                        {/* Background Track Line */}
+                                        <div className="absolute top-[18px] left-8 right-8 h-[2px] bg-slate-800/80 rounded-full z-0">
+                                          {/* Active Progress Line */}
+                                          <div 
+                                            className="h-full bg-emerald-500/80 rounded-full transition-all duration-500 ease-in-out"
+                                            style={{ width: `${(activePhysIndex / 4) * 100}%` }}
+                                          ></div>
                                         </div>
-                                        <span className={`text-[10px] font-semibold mt-2.5 leading-snug ${
-                                          isActive 
-                                            ? "text-blue-400 font-bold" 
-                                            : isPassed 
-                                              ? "text-slate-300" 
-                                              : "text-slate-600"
-                                        }`}>
-                                          {stage.label}
-                                        </span>
+
+                                        {/* Nodes Container */}
+                                        <div className="flex justify-between items-center relative z-10 w-full">
+                                          {physStages.map((label, idx) => {
+                                            const isCompleted = idx < activePhysIndex;
+                                            const isActive = idx === activePhysIndex;
+                                            
+                                            return (
+                                              <div key={label} className="flex flex-col items-center relative">
+                                                {/* Circular Node */}
+                                                <div 
+                                                  className={`w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300 z-10 ${
+                                                    isCompleted 
+                                                      ? "bg-emerald-500 shadow-lg shadow-emerald-500/20 text-slate-950" 
+                                                      : isActive 
+                                                        ? `bg-emerald-500 text-slate-950 font-bold ring-4 ring-emerald-500/30 ${isPhysPulse ? "animate-pulse" : ""}`
+                                                        : "bg-slate-900 border border-slate-800 text-slate-600"
+                                                  }`}
+                                                >
+                                                  {isCompleted ? (
+                                                    <svg className="w-3 h-3 text-slate-950 stroke-[3.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                  ) : isActive ? (
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                                  ) : (
+                                                    <span className="w-1 h-1 rounded-full bg-slate-700"></span>
+                                                  )}
+                                                </div>
+                                                {/* Absolute Label below node */}
+                                                <div className="absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                                  <span 
+                                                    className={`text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider transition-colors duration-300 ${
+                                                      isActive 
+                                                        ? "text-emerald-400 font-extrabold" 
+                                                        : isCompleted 
+                                                          ? "text-slate-300 font-semibold" 
+                                                          : "text-slate-600 font-medium"
+                                                    }`}
+                                                  >
+                                                    {label}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
                                       </div>
                                     );
-                                  })}
+                                  })()}
                                 </div>
 
-                                {/* Mobile Vertical Timeline */}
-                                <div className="flex md:hidden flex-col gap-4 pl-4 border-l-2 border-slate-800 relative">
-                                  <div 
-                                    className="absolute top-0 bottom-0 left-[-2px] w-[2px] bg-blue-500 transition-all"
-                                    style={{ height: `${(activeIndex / 7) * 100}%` }}
-                                  ></div>
+                                {/* Divider for tablet/mobile viewports */}
+                                <div className="lg:hidden h-[1px] bg-slate-900 border-t border-slate-800/50 w-full" />
+                                <div className="hidden lg:block w-[1px] min-h-[70px] bg-slate-900 border-l border-slate-800/50 self-stretch my-2" />
 
-                                  {PIPELINE_STAGES.map((stage, idx) => {
-                                    const isPassed = idx < activeIndex;
-                                    const isActive = idx === activeIndex;
+                                {/* Timeline 2: Document Clearance Hub */}
+                                <div className="space-y-4 flex-1">
+                                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
+                                    Document Clearance Hub
+                                  </div>
+                                  {(() => {
+                                    const shipStatus = ship.status || (ship as any).shipment_status;
+                                    const getDocActiveStage = (s: typeof ship) => {
+                                      if (s.doc_status) {
+                                        if (s.doc_status === "get_booking") return "Book";
+                                        if (s.doc_status === "preparing_docs") return "Prep";
+                                        if (s.doc_status === "confirm_bl" || s.doc_status === "bl_stage") return "BL";
+                                        if (s.doc_status === "confirm_draft_docs") return "Draft";
+                                        if (s.doc_status === "all_ship_docs_completed") return "All Completed";
+                                      }
+                                      if (shipStatus === "eta" || (s.bl_approval_status === "approved" && s.shipping_docs_link)) {
+                                        return "All Completed";
+                                      }
+                                      if (s.bl_approval_status === "approved" || s.bl_draft_link) {
+                                        return "Draft";
+                                      }
+                                      if (s.booking_no || shipStatus === "awaiting_bl_confirmation" || shipStatus === "awaiting_all_docs") {
+                                        return "BL";
+                                      }
+                                      if (shipStatus === "pending_production") {
+                                        return "Book";
+                                      }
+                                      return "Prep";
+                                    };
+                                    const activeDocStage = getDocActiveStage(ship);
+                                    const docActiveStatus = ship.doc_status || (
+                                      activeDocStage === "All Completed" ? "all_ship_docs_completed" :
+                                      activeDocStage === "Draft" ? "confirm_draft_docs" :
+                                      activeDocStage === "BL" ? "confirm_bl" :
+                                      activeDocStage === "Prep" ? "preparing_docs" : "get_booking"
+                                    );
+                                    const isDocPulse = docActiveStatus !== "all_ship_docs_completed";
+                                    const docStages = ["Book", "Prep", "BL", "Draft", "All Completed"];
+                                    const activeDocIndex = docStages.indexOf(activeDocStage);
 
                                     return (
-                                      <div key={stage.key} className="flex items-center gap-3">
-                                        <div 
-                                          className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold border ${
-                                            isActive 
-                                              ? "bg-blue-500 text-slate-950 border-blue-400" 
-                                              : isPassed 
-                                                ? "bg-slate-900 text-blue-400 border-blue-500/40" 
-                                                : "bg-slate-950 text-slate-700 border-slate-850"
-                                          }`}
-                                        >
-                                          {idx + 1}
+                                      <div className="relative w-full pt-2 pb-8 px-8">
+                                        {/* Background Track Line */}
+                                        <div className="absolute top-[18px] left-8 right-8 h-[2px] bg-slate-800/80 rounded-full z-0">
+                                          {/* Active Progress Line */}
+                                          <div 
+                                            className="h-full bg-emerald-500/80 rounded-full transition-all duration-500 ease-in-out"
+                                            style={{ width: `${(activeDocIndex / 4) * 100}%` }}
+                                          ></div>
                                         </div>
-                                        <span className={`text-xs font-semibold ${
-                                          isActive ? "text-blue-400 font-bold" : isPassed ? "text-slate-300" : "text-slate-600"
-                                        }`}>
-                                          {stage.label}
-                                        </span>
+
+                                        {/* Nodes Container */}
+                                        <div className="flex justify-between items-center relative z-10 w-full">
+                                          {docStages.map((label, idx) => {
+                                            const isCompleted = idx < activeDocIndex;
+                                            const isActive = idx === activeDocIndex;
+                                            
+                                            return (
+                                              <div key={label} className="flex flex-col items-center relative">
+                                                {/* Circular Node */}
+                                                <div 
+                                                  className={`w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300 z-10 ${
+                                                    isCompleted 
+                                                      ? "bg-emerald-500 shadow-lg shadow-emerald-500/20 text-slate-950" 
+                                                      : isActive 
+                                                        ? `bg-emerald-500 text-slate-950 font-bold ring-4 ring-emerald-500/30 ${isDocPulse ? "animate-pulse" : ""}`
+                                                        : "bg-slate-900 border border-slate-800 text-slate-600"
+                                                  }`}
+                                                >
+                                                  {isCompleted ? (
+                                                    <svg className="w-3 h-3 text-slate-950 stroke-[3.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                  ) : isActive ? (
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                                  ) : (
+                                                    <span className="w-1 h-1 rounded-full bg-slate-700"></span>
+                                                  )}
+                                                </div>
+                                                {/* Absolute Label below node */}
+                                                <div className="absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                                  <span 
+                                                    className={`text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider transition-colors duration-300 ${
+                                                      isActive 
+                                                        ? "text-emerald-400 font-extrabold" 
+                                                        : isCompleted 
+                                                          ? "text-slate-300 font-semibold" 
+                                                          : "text-slate-600 font-medium"
+                                                    }`}
+                                                  >
+                                                    {label}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
                                       </div>
                                     );
-                                  })}
+                                  })()}
                                 </div>
                               </div>
+
 
                               {/* Logistics details and Document Hub */}
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-3 border-t border-slate-900/60 items-start">

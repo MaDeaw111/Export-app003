@@ -35,7 +35,12 @@ import {
   Calendar,
   X,
   Container,
-  FolderSync
+  FolderSync,
+  Eye,
+  Info,
+  Download,
+  CheckCircle,
+  AlertCircle
 } from "lucide-react";
 
 const PIPELINE_STAGES = [
@@ -147,6 +152,8 @@ function AdminPortalContent() {
 
   // Edit Drawer state
   const [editingDI, setEditingDI] = useState<Shipment | null>(null);
+  const [impersonatedShipment, setImpersonatedShipment] = useState<Shipment | null>(null);
+  const [blFeedback, setBlFeedback] = useState<Record<string, string>>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [activeModalTab, setActiveModalTab] = useState<"general" | "logistics" | "status">("general");
 
@@ -732,6 +739,459 @@ function AdminPortalContent() {
     );
   };
 
+  if (impersonatedShipment) {
+    const parentPO = purchaseOrders.find(po => po.po_no === impersonatedShipment.po_no);
+    const customer = parentPO ? customers.find(c => c.customer_id === parentPO.customer_id) : null;
+    const customerName = customer ? customer.customer_name : "Apex Customer";
+
+    const handleBLActionInPreview = async (action: "approve" | "reject") => {
+      try {
+        const feedbackText = blFeedback[impersonatedShipment.di_no] || "";
+        const updates: Partial<Shipment> = {
+          bl_approval_status: action === "approve" ? "approved" : "rejected",
+          bl_feedback: feedbackText || (action === "approve" ? "Approved by client." : "Revision requested.")
+        };
+
+        if (action === "approve") {
+          updates.status = "awaiting_all_docs";
+          updates.shipping_docs_link = `https://example.com/docs/shipping-docs-${impersonatedShipment.di_no.toLowerCase()}.zip`;
+        }
+
+        await updateShipment(impersonatedShipment.di_no, updates);
+        
+        // Reload fresh state in admin view
+        const freshShips = await getShipments();
+        setShipments(freshShips);
+        
+        // Sync the impersonated shipment details
+        const updatedShip = freshShips.find(s => s.di_no === impersonatedShipment.di_no);
+        if (updatedShip) {
+          setImpersonatedShipment(updatedShip);
+        }
+        
+        setNotification({
+          message: action === "approve" 
+            ? `B/L Draft for ${impersonatedShipment.di_no} approved. Delivery status advanced.` 
+            : `Amendment request for ${impersonatedShipment.di_no} submitted to logistics.`,
+          type: "success"
+        });
+        setTimeout(() => setNotification(null), 4000);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-950 pb-20 text-slate-100 relative">
+        {/* Toast Notification inside preview */}
+        {notification && (
+          <div className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl glass-panel border border-blue-500/30 shadow-2xl flex items-center gap-3 animate-bounce">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-ping"></span>
+            <p className="text-xs text-white font-medium">{notification.message}</p>
+          </div>
+        )}
+
+        {/* Amber Impersonation Mode Top Sticky Banner */}
+        <div className="sticky top-0 z-50 bg-gradient-to-r from-amber-950 via-amber-900 to-amber-950 border-b border-amber-500/30 px-6 py-3.5 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+            </span>
+            <span className="text-sm font-bold text-amber-300 font-mono tracking-wide uppercase">
+              Preview Mode: Viewing as {customerName}
+            </span>
+          </div>
+          <button
+            onClick={() => setImpersonatedShipment(null)}
+            className="flex items-center gap-1.5 py-1.5 px-3.5 bg-slate-900/80 hover:bg-slate-805 text-slate-300 hover:text-white rounded-lg border border-slate-750 transition-all text-xs font-semibold cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" /> Close Preview
+          </button>
+        </div>
+
+        {/* Content Wrapper */}
+        <div className="max-w-4xl mx-auto px-6 mt-10 space-y-8 animate-fade-in">
+          {/* Back button link */}
+          <button 
+            onClick={() => setImpersonatedShipment(null)}
+            className="text-xs font-semibold text-slate-505 hover:text-slate-300 flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            &larr; Return to Global Shipment Log
+          </button>
+
+          {/* Client Card Title */}
+          <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+            <h2 className="text-xl font-bold text-white tracking-wide">Client Portal Interface Preview</h2>
+            <span className="text-xs text-slate-400 font-mono">PO: {impersonatedShipment.po_no} &bull; {impersonatedShipment.di_no}</span>
+          </div>
+
+          {/* Core Card (Rendered exactly like Client Portal DI Card) */}
+          <div className="p-6 rounded-3xl bg-slate-900/30 border border-slate-900 flex flex-col gap-6 relative shadow-2xl overflow-hidden glass-panel">
+            <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-blue-500/20 to-transparent"></div>
+
+            {/* Shipment Header Details */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-900 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-white">{impersonatedShipment.di_no}</h4>
+                  <span className="px-2 py-0.5 rounded-full bg-blue-900/20 border border-blue-500/20 text-[10px] text-blue-400 font-semibold font-mono">
+                    {impersonatedShipment.product_id}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span>Quantity: <strong>{Number(impersonatedShipment.quantity_tons).toFixed(3)} Tons</strong></span>
+                  {impersonatedShipment.container_no && <span>Container: <strong>{impersonatedShipment.container_no}</strong></span>}
+                  {impersonatedShipment.seal_no && <span>Seal: <strong>{impersonatedShipment.seal_no}</strong></span>}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <div className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-900 text-xs font-semibold text-slate-300 font-mono">
+                  Status: <span className="text-blue-400 capitalize">{impersonatedShipment.status.replace(/_/g, " ")}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* DUAL STEPPER SYSTEM */}
+            <div className="py-6 border-y border-slate-900 bg-slate-950/20 px-6 rounded-2xl flex flex-col lg:flex-row justify-between gap-8 lg:gap-12 select-none">
+              {/* Timeline 1: Vessel & Transit Tracking */}
+              <div className="space-y-4 flex-1">
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
+                  Vessel & Transit Tracking
+                </div>
+                {(() => {
+                  const shipStatus = impersonatedShipment.status || (impersonatedShipment as any).shipment_status;
+                  const getPhysicalActiveStage = (status: string) => {
+                    if (status === "pending_production") return "Prod";
+                    if (status === "pending_packaging") return "Pack";
+                    if (status === "awaiting_loading" || status === "loaded_into_container" || status === "awaiting_bl_confirmation" || status === "awaiting_all_docs") return "Loaded";
+                    if (status === "etd") return "ETD";
+                    if (status === "eta") return "ETA";
+                    return "Prod";
+                  };
+                  const activePhysStage = getPhysicalActiveStage(shipStatus || "");
+                  const physStages = ["Prod", "Pack", "Loaded", "ETD", "ETA"];
+                  const activePhysIndex = physStages.indexOf(activePhysStage);
+                  const isPhysPulse = shipStatus !== "eta";
+
+                  return (
+                    <div className="relative w-full pt-2 pb-8 px-8">
+                      {/* Background Track Line */}
+                      <div className="absolute top-[18px] left-8 right-8 h-[2px] bg-slate-800/80 rounded-full z-0">
+                        {/* Active Progress Line */}
+                        <div 
+                          className="h-full bg-emerald-500/80 rounded-full transition-all duration-500 ease-in-out"
+                          style={{ width: `${(activePhysIndex / 4) * 100}%` }}
+                        ></div>
+                      </div>
+
+                      {/* Nodes Container */}
+                      <div className="flex justify-between items-center relative z-10 w-full">
+                        {physStages.map((label, idx) => {
+                          const isCompleted = idx < activePhysIndex;
+                          const isActive = idx === activePhysIndex;
+                          
+                          return (
+                            <div key={label} className="flex flex-col items-center relative">
+                              {/* Circular Node */}
+                              <div 
+                                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300 z-10 ${
+                                  isCompleted 
+                                    ? "bg-emerald-500 shadow-lg shadow-emerald-500/20 text-slate-950" 
+                                    : isActive 
+                                      ? `bg-emerald-500 text-slate-950 font-bold ring-4 ring-emerald-500/30 ${isPhysPulse ? "animate-pulse" : ""}`
+                                      : "bg-slate-900 border border-slate-800 text-slate-600"
+                                }`}
+                              >
+                                {isCompleted ? (
+                                  <svg className="w-3 h-3 text-slate-950 stroke-[3.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : isActive ? (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                ) : (
+                                  <span className="w-1 h-1 rounded-full bg-slate-700"></span>
+                                )}
+                              </div>
+                              {/* Absolute Label below node */}
+                              <div className="absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                <span 
+                                  className={`text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider transition-colors duration-300 ${
+                                    isActive 
+                                      ? "text-emerald-400 font-extrabold" 
+                                      : isCompleted 
+                                        ? "text-slate-300 font-semibold" 
+                                        : "text-slate-600 font-medium"
+                                  }`}
+                                >
+                                  {label}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Divider for tablet/mobile viewports */}
+              <div className="lg:hidden h-[1px] bg-slate-900 border-t border-slate-800/50 w-full" />
+              <div className="hidden lg:block w-[1px] min-h-[70px] bg-slate-900 border-l border-slate-800/50 self-stretch my-2" />
+
+              {/* Timeline 2: Document Clearance Hub */}
+              <div className="space-y-4 flex-1">
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">
+                  Document Clearance Hub
+                </div>
+                {(() => {
+                  const shipStatus = impersonatedShipment.status || (impersonatedShipment as any).shipment_status;
+                  const getDocActiveStage = (s: typeof impersonatedShipment) => {
+                    if (s.doc_status) {
+                      if (s.doc_status === "get_booking") return "Book";
+                      if (s.doc_status === "preparing_docs") return "Prep";
+                      if (s.doc_status === "confirm_bl" || s.doc_status === "bl_stage") return "BL";
+                      if (s.doc_status === "confirm_draft_docs") return "Draft";
+                      if (s.doc_status === "all_ship_docs_completed") return "All Completed";
+                    }
+                    if (shipStatus === "eta" || (s.bl_approval_status === "approved" && s.shipping_docs_link)) {
+                      return "All Completed";
+                    }
+                    if (s.bl_approval_status === "approved" || s.bl_draft_link) {
+                      return "Draft";
+                    }
+                    if (s.booking_no || shipStatus === "awaiting_bl_confirmation" || shipStatus === "awaiting_all_docs") {
+                      return "BL";
+                    }
+                    if (shipStatus === "pending_production") {
+                      return "Book";
+                    }
+                    return "Prep";
+                  };
+                  const activeDocStage = getDocActiveStage(impersonatedShipment);
+                  const docActiveStatus = impersonatedShipment.doc_status || (
+                    activeDocStage === "All Completed" ? "all_ship_docs_completed" :
+                    activeDocStage === "Draft" ? "confirm_draft_docs" :
+                    activeDocStage === "BL" ? "confirm_bl" :
+                    activeDocStage === "Prep" ? "preparing_docs" : "get_booking"
+                  );
+                  const isDocPulse = docActiveStatus !== "all_ship_docs_completed";
+                  const docStages = ["Book", "Prep", "BL", "Draft", "All Completed"];
+                  const activeDocIndex = docStages.indexOf(activeDocStage);
+
+                  return (
+                    <div className="relative w-full pt-2 pb-8 px-8">
+                      {/* Background Track Line */}
+                      <div className="absolute top-[18px] left-8 right-8 h-[2px] bg-slate-800/80 rounded-full z-0">
+                        {/* Active Progress Line */}
+                        <div 
+                          className="h-full bg-emerald-500/80 rounded-full transition-all duration-500 ease-in-out"
+                          style={{ width: `${(activeDocIndex / 4) * 100}%` }}
+                        ></div>
+                      </div>
+
+                      {/* Nodes Container */}
+                      <div className="flex justify-between items-center relative z-10 w-full">
+                        {docStages.map((label, idx) => {
+                          const isCompleted = idx < activeDocIndex;
+                          const isActive = idx === activeDocIndex;
+                          
+                          return (
+                            <div key={label} className="flex flex-col items-center relative">
+                              {/* Circular Node */}
+                              <div 
+                                className={`w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300 z-10 ${
+                                  isCompleted 
+                                    ? "bg-emerald-500 shadow-lg shadow-emerald-500/20 text-slate-950" 
+                                    : isActive 
+                                      ? `bg-emerald-500 text-slate-950 font-bold ring-4 ring-emerald-500/30 ${isDocPulse ? "animate-pulse" : ""}`
+                                      : "bg-slate-900 border border-slate-800 text-slate-600"
+                                }`}
+                              >
+                                {isCompleted ? (
+                                  <svg className="w-3 h-3 text-slate-950 stroke-[3.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : isActive ? (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                ) : (
+                                  <span className="w-1 h-1 rounded-full bg-slate-700"></span>
+                                )}
+                              </div>
+                              {/* Absolute Label below node */}
+                              <div className="absolute top-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                                <span 
+                                  className={`text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider transition-colors duration-300 ${
+                                    isActive 
+                                      ? "text-emerald-400 font-extrabold" 
+                                      : isCompleted 
+                                        ? "text-slate-300 font-semibold" 
+                                        : "text-slate-600 font-medium"
+                                  }`}
+                                >
+                                  {label}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Logistics details and Document Hub */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-3 border-t border-slate-900/60 items-start">
+              {/* Details list */}
+              <div className="space-y-2 bg-slate-900/30 p-4 rounded-xl border border-slate-900">
+                <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-3 font-mono">
+                  <Info className="w-3.5 h-3.5 text-blue-400" /> Shipment Logistics Profile
+                </h5>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-500 block">Forwarder Partner</span>
+                    <span className="text-white font-medium">{impersonatedShipment.forwarder_id || "Awaiting Booking"}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Logistics Asset</span>
+                    <span className="text-white font-medium">{impersonatedShipment.truck_id || "Not assigned"}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-505 block">Estimated ETD</span>
+                    <span className="text-white font-medium">{impersonatedShipment.etd_date || "Scheduling"}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-505 block">Estimated ETA</span>
+                    <span className="text-white font-medium">{impersonatedShipment.eta_date || "Scheduling"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Document Hub & B/L Action Module */}
+              <div className="space-y-4">
+                <div className="bg-slate-900/30 p-4 rounded-xl border border-slate-900">
+                  <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-3 font-mono">
+                    <FileText className="w-3.5 h-3.5 text-blue-400" /> Document Hub
+                  </h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* B/L Draft Link */}
+                    {impersonatedShipment.bl_draft_link ? (
+                      <a 
+                        href={impersonatedShipment.bl_draft_link} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all flex items-center justify-between group cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-amber-400" />
+                          <div>
+                            <span className="text-xs text-white block font-medium">B/L Draft</span>
+                            <span className="text-[9px] text-slate-500 block font-mono">PDF Document</span>
+                          </div>
+                        </div>
+                        <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-400 group-hover:translate-y-0.5 transition-all" />
+                      </a>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-955 flex items-center gap-2 text-slate-600">
+                        <FileText className="w-4 h-4 text-slate-750" />
+                        <div>
+                          <span className="text-xs block font-medium">B/L Draft</span>
+                          <span className="text-[9px] block">Not Available Yet</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Shipping Docs Link */}
+                    {impersonatedShipment.shipping_docs_link ? (
+                      <a 
+                        href={impersonatedShipment.shipping_docs_link} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all flex items-center justify-between group cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-emerald-400" />
+                          <div>
+                            <span className="text-xs text-white block font-medium">Shipping Dossier</span>
+                            <span className="text-[9px] text-slate-500 block font-mono">All Files (.zip)</span>
+                          </div>
+                        </div>
+                        <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-400 group-hover:translate-y-0.5 transition-all" />
+                      </a>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-955 flex items-center gap-2 text-slate-600">
+                        <FileText className="w-4 h-4 text-slate-750" />
+                        <div>
+                          <span className="text-xs block font-medium">Shipping Dossier</span>
+                          <span className="text-[9px] block font-mono">Awaiting Dispatch</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* B/L Approval Console */}
+                {impersonatedShipment.status === "awaiting_bl_confirmation" && (
+                  <div className="glass-card p-4 rounded-xl border border-slate-800 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-2 h-full bg-amber-500/20"></div>
+                    
+                    <h6 className="text-xs font-bold text-amber-400 flex items-center gap-1.5 mb-2 font-mono">
+                      <AlertCircle className="w-4 h-4 text-amber-400" /> Customer Approval Action Required
+                    </h6>
+                    <p className="text-[10px] text-slate-400 leading-relaxed mb-3">
+                      Please inspect the B/L draft and verify port codes, container weights, and product specifications.
+                    </p>
+
+                    {impersonatedShipment.bl_approval_status === "approved" ? (
+                      <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                        <span>Draft Approved. Logistics preparing dispatch.</span>
+                      </div>
+                    ) : impersonatedShipment.bl_approval_status === "rejected" ? (
+                      <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-400" />
+                        <span>Amendment requested. Feedback logged: "{impersonatedShipment.bl_feedback}"</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <textarea
+                          placeholder="Provide revision notes or feedback if requesting changes..."
+                          value={blFeedback[impersonatedShipment.di_no] || ""}
+                          onChange={(e) => setBlFeedback(prev => ({ ...prev, [impersonatedShipment.di_no]: e.target.value }))}
+                          className="w-full p-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-650 focus:outline-none focus:border-blue-500 transition-all"
+                          rows={2}
+                        />
+
+                        <div className="flex gap-2.5">
+                          <button
+                            onClick={() => handleBLActionInPreview("reject")}
+                            className="flex-1 py-2 px-3 bg-red-950/30 border border-red-500/20 hover:bg-red-900/30 text-red-400 font-semibold rounded-lg text-xs transition-all active:scale-[0.98] cursor-pointer"
+                          >
+                            Request Revision
+                          </button>
+                          <button
+                            onClick={() => handleBLActionInPreview("approve")}
+                            className="flex-1 py-2 px-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-slate-950 font-semibold rounded-lg text-xs transition-all active:scale-[0.98] cursor-pointer"
+                          >
+                            Approve Draft
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen pb-20">
       {/* Top Banner Header */}
@@ -975,6 +1435,7 @@ function AdminPortalContent() {
                             <td className="py-3 px-3">
                               {(() => {
                                 // 1. Derive physical active stage
+                                const shipStatus = ship.status || (ship as any).shipment_status;
                                 const getPhysicalActiveStage = (status: string) => {
                                   if (status === "pending_production") return "Prod";
                                   if (status === "pending_packaging") return "Pack";
@@ -983,25 +1444,29 @@ function AdminPortalContent() {
                                   if (status === "eta") return "ETA";
                                   return "Prod";
                                 };
-                                const activePhysStage = getPhysicalActiveStage(ship.status);
-                                const isPhysPulse = ship.status !== "eta";
+                                const activePhysStage = getPhysicalActiveStage(shipStatus || "");
+                                const isPhysPulse = shipStatus !== "eta";
 
                                 // 2. Derive document active stage
                                 const getDocActiveStage = (s: typeof ship) => {
                                   if (s.doc_status) {
+                                    if (s.doc_status === "get_booking") return "Book";
                                     if (s.doc_status === "preparing_docs") return "Prep";
-                                    if (s.doc_status === "bl_stage") return "BL";
+                                    if (s.doc_status === "confirm_bl" || s.doc_status === "bl_stage") return "BL";
                                     if (s.doc_status === "confirm_draft_docs") return "Draft";
                                     if (s.doc_status === "all_ship_docs_completed") return "All Completed";
                                   }
-                                  if (s.status === "eta" || (s.bl_approval_status === "approved" && s.shipping_docs_link)) {
+                                  if (shipStatus === "eta" || (s.bl_approval_status === "approved" && s.shipping_docs_link)) {
                                     return "All Completed";
                                   }
                                   if (s.bl_approval_status === "approved" || s.bl_draft_link) {
                                     return "Draft";
                                   }
-                                  if (s.booking_no || s.status === "awaiting_bl_confirmation" || s.status === "awaiting_all_docs") {
+                                  if (s.booking_no || shipStatus === "awaiting_bl_confirmation" || shipStatus === "awaiting_all_docs") {
                                     return "BL";
+                                  }
+                                  if (shipStatus === "pending_production") {
+                                    return "Book";
                                   }
                                   return "Prep";
                                 };
@@ -1009,100 +1474,117 @@ function AdminPortalContent() {
                                 const docActiveStatus = ship.doc_status || (
                                   activeDocStage === "All Completed" ? "all_ship_docs_completed" :
                                   activeDocStage === "Draft" ? "confirm_draft_docs" :
-                                  activeDocStage === "BL" ? "bl_stage" : "preparing_docs"
+                                  activeDocStage === "BL" ? "confirm_bl" :
+                                  activeDocStage === "Prep" ? "preparing_docs" : "get_booking"
                                 );
                                 const isDocPulse = docActiveStatus !== "all_ship_docs_completed";
 
+                                const renderPhysStage = (label: string, key: string) => {
+                                  const isActive = activePhysStage === key;
+                                  return (
+                                    <span className="flex items-center gap-1" key={key}>
+                                      <span className={`transition-all font-mono text-[9px] tracking-wide ${
+                                        isActive 
+                                          ? "text-emerald-400 font-bold" 
+                                          : "text-slate-500 font-medium"
+                                      }`}>
+                                        {label}
+                                      </span>
+                                      {isActive && (
+                                        isPhysPulse ? (
+                                          <span className="relative flex h-1.5 w-1.5">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                                          </span>
+                                        ) : (
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                                        )
+                                      )}
+                                    </span>
+                                  );
+                                };
+
+                                const renderDocStage = (label: string, key: string) => {
+                                  const isActive = activeDocStage === key;
+                                  return (
+                                    <span className="flex items-center gap-1" key={key}>
+                                      <span className={`transition-all font-mono text-[9px] tracking-wide ${
+                                        isActive 
+                                          ? "text-emerald-400 font-bold" 
+                                          : "text-slate-500 font-medium"
+                                      }`}>
+                                        {label}
+                                      </span>
+                                      {isActive && (
+                                        isDocPulse ? (
+                                          <span className="relative flex h-1.5 w-1.5">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                                          </span>
+                                        ) : (
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                                        )
+                                      )}
+                                    </span>
+                                  );
+                                };
+
                                 return (
-                                  <div className="flex flex-col space-y-1.5 min-w-[210px] pr-2">
-                                    {/* Row 1: Shipment Status (Physical Tracking) */}
-                                    <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold select-none leading-none">
-                                      <span className="text-[8px] text-slate-400 font-medium uppercase tracking-wider w-8 shrink-0">Phys:</span>
-                                      <span className="flex items-center">
-                                        <span className={activePhysStage === "Prod" ? "text-emerald-400 font-extrabold" : ""}>Prod</span>
-                                        {activePhysStage === "Prod" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isPhysPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
-                                      <span className="text-slate-800 font-normal">|</span>
-                                      <span className="flex items-center">
-                                        <span className={activePhysStage === "Pack" ? "text-emerald-400 font-extrabold" : ""}>Pack</span>
-                                        {activePhysStage === "Pack" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isPhysPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
-                                      <span className="text-slate-800 font-normal">|</span>
-                                      <span className="flex items-center">
-                                        <span className={activePhysStage === "Loaded" ? "text-emerald-400 font-extrabold" : ""}>Loaded</span>
-                                        {activePhysStage === "Loaded" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isPhysPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
-                                      <span className="text-slate-800 font-normal">|</span>
-                                      <span className="flex items-center">
-                                        <span className={activePhysStage === "ETD" ? "text-emerald-400 font-extrabold" : ""}>ETD</span>
-                                        {activePhysStage === "ETD" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isPhysPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
-                                      <span className="text-slate-800 font-normal">|</span>
-                                      <span className="flex items-center">
-                                        <span className={activePhysStage === "ETA" ? "text-emerald-400 font-extrabold" : ""}>ETA</span>
-                                        {activePhysStage === "ETA" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isPhysPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
+                                  <div className="flex flex-col space-y-1 min-w-[210px] pr-2 select-none">
+                                    {/* Line 1: Shipment Status (Physical Tracking) */}
+                                    <div className="flex items-center gap-1 text-[9px] text-slate-600 font-bold flex-wrap leading-none">
+                                      {renderPhysStage("Prod", "Prod")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderPhysStage("Pack", "Pack")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderPhysStage("Loaded", "Loaded")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderPhysStage("ETD", "ETD")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderPhysStage("ETA", "ETA")}
                                     </div>
-                                    
+
                                     {/* Divider */}
-                                    <div className="h-[1px] bg-slate-900 border-t border-slate-800/40 w-full" />
-                                    
-                                    {/* Row 2: Docs Status (Document Tracking) */}
-                                    <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold select-none leading-none">
-                                      <span className="text-[8px] text-slate-400 font-medium uppercase tracking-wider w-8 shrink-0">Docs:</span>
-                                      <span className="flex items-center">
-                                        <span className={activeDocStage === "Prep" ? "text-emerald-400 font-extrabold" : ""}>Prep</span>
-                                        {activeDocStage === "Prep" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isDocPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
-                                      <span className="text-slate-800 font-normal">|</span>
-                                      <span className="flex items-center">
-                                        <span className={activeDocStage === "BL" ? "text-emerald-400 font-extrabold" : ""}>BL</span>
-                                        {activeDocStage === "BL" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isDocPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
-                                      <span className="text-slate-800 font-normal">|</span>
-                                      <span className="flex items-center">
-                                        <span className={activeDocStage === "Draft" ? "text-emerald-400 font-extrabold" : ""}>Draft</span>
-                                        {activeDocStage === "Draft" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isDocPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
-                                      <span className="text-slate-800 font-normal">|</span>
-                                      <span className="flex items-center">
-                                        <span className={activeDocStage === "All Completed" ? "text-emerald-400 font-extrabold" : ""}>All Completed</span>
-                                        {activeDocStage === "All Completed" && (
-                                          <span className={`w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block ml-0.5 ${isDocPulse ? "animate-pulse" : ""}`} />
-                                        )}
-                                      </span>
+                                    <div className="h-[1px] bg-slate-900 border-t border-slate-800/30 w-full my-0.5" />
+
+                                    {/* Line 2: Docs Status (Document Tracking) */}
+                                    <div className="flex items-center gap-1 text-[9px] text-slate-600 font-bold flex-wrap leading-none">
+                                      {renderDocStage("Book", "Book")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderDocStage("Prep", "Prep")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderDocStage("BL", "BL")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderDocStage("Draft", "Draft")}
+                                      <span className="text-slate-800/80 font-normal mx-0.5">|</span>
+                                      {renderDocStage("All Completed", "All Completed")}
                                     </div>
                                   </div>
                                 );
                               })()}
                             </td>
                             <td className="py-3 px-3 text-center">
-                              <button
-                                onClick={() => {
-                                  setActiveModalTab("general");
-                                  setEditingDI(ship);
-                                }}
-                                className="p-1.5 bg-slate-900/60 hover:bg-blue-600 hover:text-slate-950 text-slate-400 rounded-lg border border-slate-800 hover:border-transparent transition-all cursor-pointer"
-                                title="Edit Shipment Logistics"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setActiveModalTab("general");
+                                    setEditingDI(ship);
+                                  }}
+                                  className="p-1.5 bg-slate-900/60 hover:bg-blue-600 hover:text-slate-950 text-slate-400 rounded-lg border border-slate-800 hover:border-transparent transition-all cursor-pointer"
+                                  title="Edit Shipment Logistics"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setImpersonatedShipment(ship);
+                                  }}
+                                  className="p-1.5 bg-slate-900/60 hover:bg-emerald-600 hover:text-slate-950 text-slate-400 rounded-lg border border-slate-800 hover:border-transparent transition-all cursor-pointer"
+                                  title="View as Customer (Impersonate)"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2193,8 +2675,9 @@ function AdminPortalContent() {
                           onChange={(e) => setEditingDI({ ...editingDI, doc_status: e.target.value as any })}
                           className="w-full p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none cursor-pointer"
                         >
+                          <option value="get_booking">Booking Confirmation Received (Book)</option>
                           <option value="preparing_docs">Preparing Documents (Prep)</option>
-                          <option value="bl_stage">Bill of Lading Stage (BL)</option>
+                          <option value="confirm_bl">Confirm Bill of Lading (BL)</option>
                           <option value="confirm_draft_docs">Confirm Draft Docs (Draft)</option>
                           <option value="all_ship_docs_completed">All Shipping Docs Completed (Completed)</option>
                         </select>
