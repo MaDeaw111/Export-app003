@@ -68,6 +68,7 @@ export interface Shipment {
   loading_start_date?: string | null;
   loading_end_date?: string | null;
   loading_splits?: Array<{ date: string; qty: number }> | null;
+  doc_status?: "preparing_docs" | "bl_stage" | "confirm_draft_docs" | "all_ship_docs_completed" | null;
   created_at?: string;
   updated_at?: string;
 }
